@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Chat Application</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Material Design Icons (optional, for a more complete Material Design feel) -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #f5f5f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .container {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            width: 100%;
+            max-width: 500px;
+        }
+        .form-section {
+            display: none; /* Hidden by default */
+        }
+        .form-section.active {
+            display: block;
+        }
+        .chat-section {
+            display: none; /* Hidden by default */
+            height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .chat-section.active {
+            display: flex;
+        }
+        #messages {
+            list-style-type: none;
+            margin: 0;
+            padding: 0;
+            flex-grow: 1;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        #messages li {
+            padding: 8px 10px;
+            margin-bottom: 5px;
+            background-color: #e0e0e0;
+            border-radius: 4px;
+        }
+        #messages li.my-message {
+            background-color: #c8e6c9;
+            text-align: right;
+        }
+        #messageForm {
+            display: flex;
+        }
+        #messageInput {
+            flex-grow: 1;
+            border-radius: 20px;
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+        }
+        #messageForm button {
+            margin-left: 10px;
+            border-radius: 20px;
+        }
+        .auth-toggle {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Registration Section -->
+        <div id="registerSection" class="form-section active">
+            <h2 class="text-center mb-4">Register</h2>
+            <form id="registerForm">
+                <div class="mb-3">
+                    <label for="registerUsername" class="form-label">Username</label>
+                    <input type="text" class="form-control" id="registerUsername" required>
+                </div>
+                <div class="mb-3">
+                    <label for="registerPassword" class="form-label">Password</label>
+                    <input type="password" class="form-control" id="registerPassword" required>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Register</button>
+            </form>
+            <p class="auth-toggle">Already have an account? <a href="#" id="showLogin">Login</a></p>
+            <div id="registerMessage" class="mt-3 text-center"></div>
+        </div>
+
+        <!-- Login Section -->
+        <div id="loginSection" class="form-section">
+            <h2 class="text-center mb-4">Login</h2>
+            <form id="loginForm">
+                <div class="mb-3">
+                    <label for="loginUsername" class="form-label">Username</label>
+                    <input type="text" class="form-control" id="loginUsername" required>
+                </div>
+                <div class="mb-3">
+                    <label for="loginPassword" class="form-label">Password</label>
+                    <input type="password" class="form-control" id="loginPassword" required>
+                </div>
+                <button type="submit" class="btn btn-success w-100">Login</button>
+            </form>
+            <p class="auth-toggle">Don't have an account? <a href="#" id="showRegister">Register</a></p>
+            <div id="loginMessage" class="mt-3 text-center"></div>
+        </div>
+
+        <!-- Chat Section -->
+        <div id="chatSection" class="chat-section">
+            <div class="chat-header">
+                <h2 class="mb-0">Real-time Chat</h2>
+                <button id="logoutButton" class="btn btn-danger btn-sm">Logout</button>
+            </div>
+            <ul id="messages"></ul>
+            <form id="messageForm">
+                <input type="text" id="messageInput" class="form-control" placeholder="Type your message..." autocomplete="off" required>
+                <button type="submit" class="btn btn-primary">Send</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Bootstrap Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Socket.IO Client -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const registerSection = document.getElementById('registerSection');
+        const loginSection = document.getElementById('loginSection');
+        const chatSection = document.getElementById('chatSection');
+
+        const registerForm = document.getElementById('registerForm');
+        const loginForm = document.getElementById('loginForm');
+        const messageForm = document.getElementById('messageForm');
+        const logoutButton = document.getElementById('logoutButton');
+
+        const registerUsernameInput = document.getElementById('registerUsername');
+        const registerPasswordInput = document.getElementById('registerPassword');
+        const loginUsernameInput = document.getElementById('loginUsername');
+        const loginPasswordInput = document.getElementById('loginPassword');
+        const messageInput = document.getElementById('messageInput');
+
+        const registerMessageDiv = document.getElementById('registerMessage');
+        const loginMessageDiv = document.getElementById('loginMessage');
+        const messagesList = document.getElementById('messages');
+
+        const showLoginLink = document.getElementById('showLogin');
+        const showRegisterLink = document.getElementById('showRegister');
+
+        let socket;
+        let currentUsername = ''; // To store the logged-in username
+
+        // Function to show a specific section
+        function showSection(sectionToShow) {
+            registerSection.classList.remove('active');
+            loginSection.classList.remove('active');
+            chatSection.classList.remove('active');
+            sectionToShow.classList.add('active');
+        }
+
+        // Event listeners for switching between auth forms
+        showLoginLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            showSection(loginSection);
+        });
+
+        showRegisterLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            showSection(registerSection);
+        });
+
+        // Handle Registration Form Submission
+        registerForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = registerUsernameInput.value;
+            const password = registerPasswordInput.value;
+
+            try {
+                const response = await fetch('/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                const message = await response.text();
+                registerMessageDiv.textContent = message;
+                registerMessageDiv.className = 'mt-3 text-center ' + (response.ok ? 'text-success' : 'text-danger');
+                if (response.ok) {
+                    registerUsernameInput.value = '';
+                    registerPasswordInput.value = '';
+                    setTimeout(() => showSection(loginSection), 1500); // Redirect to login after success
+                }
+            } catch (error) {
+                registerMessageDiv.textContent = 'Network error. Please try again.';
+                registerMessageDiv.className = 'mt-3 text-danger';
+                console.error('Registration error:', error);
+            }
+        });
+
+        // Handle Login Form Submission
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = loginUsernameInput.value;
+            const password = loginPasswordInput.value;
+
+            try {
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await response.json(); // Expect JSON response
+                loginMessageDiv.textContent = data.message;
+                loginMessageDiv.className = 'mt-3 text-center ' + (response.ok ? 'text-success' : 'text-danger');
+
+                if (response.ok) {
+                    currentUsername = data.username; // Store the logged-in username
+                    loginUsernameInput.value = '';
+                    loginPasswordInput.value = '';
+                    
+                    // If login is successful, connect to Socket.IO and show chat
+                    socket = io();
+                    socket.on('chat message', function(msgData) {
+                        const item = document.createElement('li');
+                        item.textContent = `${msgData.username}: ${msgData.message}`;
+                        if (msgData.username === currentUsername) {
+                            item.classList.add('my-message');
+                        }
+                        messagesList.appendChild(item);
+                        messagesList.scrollTop = messagesList.scrollHeight; // Auto-scroll to bottom
+                    });
+
+                    messageForm.addEventListener('submit', function(e) {
+                        e.preventDefault();
+                        if (messageInput.value) {
+                            socket.emit('chat message', { username: currentUsername, message: messageInput.value });
+                            messageInput.value = '';
+                        }
+                    });
+                    showSection(chatSection);
+                }
+            } catch (error) {
+                loginMessageDiv.textContent = 'Network error. Please try again.';
+                loginMessageDiv.className = 'mt-3 text-danger';
+                console.error('Login error:', error);
+            }
+        });
+
+        // Handle Logout Button Click
+        logoutButton.addEventListener('click', async () => {
+            try {
+                const response = await fetch('/logout', {
+                    method: 'POST'
+                });
+                const message = await response.text();
+                if (response.ok) {
+                    alert(message); // Or display a more elegant message
+                    currentUsername = ''; // Clear username
+                    if (socket) {
+                        socket.disconnect(); // Disconnect Socket.IO
+                    }
+                    messagesList.innerHTML = ''; // Clear chat messages
+                    showSection(loginSection); // Go back to login page
+                } else {
+                    alert('Logout failed: ' + message);
+                }
+            } catch (error) {
+                console.error('Logout error:', error);
+                alert('Network error during logout.');
+            }
+        });
+
+        // Initial view: show registration form
+        showSection(registerSection);
+    </script>
+</body>
+</html>

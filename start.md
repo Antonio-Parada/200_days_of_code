@@ -21,7 +21,7 @@ Some projects may have specific setup or execution instructions. These will be d
 ## 5. Getting Started
 
 1.  **Choose a Project:** Select a project from `200_days_of_code_projects.md`.
-2.  **Create Project Folder:** Create a new folder for your project within this directory.
+2.  **Create Project Folder:** Create a new folder for your project within this current directory.
 3.  **Implement and Document:** Work on your project, documenting your code and any significant learnings in a `README.md` file within your project folder.
 4.  **Update Progress:** Once a project is complete, update `progress.md`.
 5.  **Commit and Push:** Follow the instructions in `Git_Procedures.md` to commit your changes and push them to your remote repository.
