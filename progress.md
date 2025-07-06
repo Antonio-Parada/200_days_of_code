@@ -23,3 +23,23 @@ This document tracks the completion of projects in the 200 Days of Code challeng
 4.  Add more advanced chat features (e.g., typing indicators, read receipts).
 5.  Work on deployment to a cloud platform.
 
+### E-commerce Platform
+**Approach:**
+- **Frontend:** React (JavaScript)
+- **Backend (API Gateway):** Node.js (Express)
+- **Backend (Database Layer):** Python (FastAPI) communicating with PostgreSQL (containerized)
+
+**Progress:**
+- Created project directory.
+- Created `README.md`.
+- Set up Node.js backend (`backend-nodejs`): `package.json`, installed dependencies, created `server.js`.
+- Set up Python backend (`backend-python`): `requirements.txt`, `Dockerfile`, `main.py`, `database.py`, `schemas.py`, `models.py`.
+
+**Current Roadblock:** Unable to build Docker image for Python backend due to `docker buildx build` error, even after attempting to disable BuildKit. This indicates a potential issue with the Docker Desktop setup or environment configuration on the user's machine.
+
+**Next Steps:**
+1.  Resolve Docker build issue for Python backend.
+2.  Build and run Python backend Docker container.
+3.  Start Node.js backend.
+4.  Set up React frontend.
+
