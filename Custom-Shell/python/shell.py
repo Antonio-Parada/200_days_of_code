@@ -25,14 +25,40 @@ def main():
         # Split the line into command and arguments
         args = line.split()
 
+        # Handle built-in commands
+        if args[0] == "cd":
+            if len(args) > 1:
+                try:
+                    os.chdir(args[1])
+                except FileNotFoundError:
+                    print(f"cd: no such file or directory: {args[1]}")
+            else:
+                # cd to home directory if no argument is given
+                os.chdir(os.path.expanduser("~"))
+            continue
+
         try:
+            # Handle I/O redirection
+            stdin_redir = None
+            stdout_redir = None
+
+            if "<" in args:
+                i = args.index("<")
+                stdin_redir = open(args[i+1], "r")
+                args = args[:i]
+
+            if ">" in args:
+                i = args.index(">")
+                stdout_redir = open(args[i+1], "w")
+                args = args[:i]
+
             # Handle pipes
             if "|" in line:
                 # Split the line into commands
                 commands = [cmd.strip().split() for cmd in line.split("|")]
                 
                 # Create the first process
-                p1 = subprocess.Popen(commands[0], stdout=subprocess.PIPE)
+                p1 = subprocess.Popen(commands[0], stdout=subprocess.PIPE, stdin=stdin_redir)
                 
                 # Chain the rest of the commands
                 for i in range(1, len(commands)):
@@ -43,26 +69,22 @@ def main():
                 # Get the output of the last command
                 output, err = p1.communicate()
                 if output:
-                    print(output.decode().strip())
+                    if stdout_redir:
+                        stdout_redir.write(output.decode())
+                        stdout_redir.close()
+                    else:
+                        print(output.decode().strip())
                 if err:
                     print(err.decode().strip(), file=sys.stderr)
 
             else:
                 # Execute a simple command
-                args = line.split()
-                # Handle the 'cd' command
-                if args[0] == "cd":
-                    if len(args) > 1:
-                        try:
-                            os.chdir(args[1])
-                        except FileNotFoundError:
-                            print(f"cd: no such file or directory: {args[1]}")
-                    else:
-                        # cd to home directory if no argument is given
-                        os.chdir(os.path.expanduser("~"))
-                    continue
-                
-                subprocess.run(args)
+                subprocess.run(args, stdin=stdin_redir, stdout=stdout_redir)
+
+            if stdin_redir:
+                stdin_redir.close()
+            if stdout_redir:
+                stdout_redir.close()
 
         except FileNotFoundError:
             print(f"Command not found: {line.split()[0]}")

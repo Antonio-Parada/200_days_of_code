@@ -28,42 +28,8 @@ func main() {
 			continue
 		}
 
-		if strings.Contains(input, "|") {
-			commands := strings.Split(input, "|")
-			var cmds []*exec.Cmd
-
-			for _, cmdStr := range commands {
-				cmdStr = strings.TrimSpace(cmdStr)
-				args := strings.Split(cmdStr, " ")
-				cmd := exec.Command(args[0], args[1:]...)
-				cmds = append(cmds, cmd)
-			}
-
-			for i := 0; i < len(cmds)-1; i++ {
-				r, w := io.Pipe()
-				cmds[i].Stdout = w
-				cmds[i+1].Stdin = r
-			}
-
-			cmds[len(cmds)-1].Stdout = os.Stdout
-
-			for _, cmd := range cmds {
-				if err := cmd.Start(); err != nil {
-					fmt.Fprintln(os.Stderr, err)
-				}
-			}
-
-			for _, cmd := range cmds {
-				if err := cmd.Wait(); err != nil {
-					fmt.Fprintln(os.Stderr, err)
-				}
-			}
-
-			continue
-		}
-
+		// Handle built-in commands
 		args := strings.Split(input, " ")
-
 		switch args[0] {
 		case "exit":
 			return
@@ -87,10 +53,76 @@ func main() {
 			continue
 		}
 
+		// I/O redirection
+		var stdin io.Reader = os.Stdin
+		var stdout io.Writer = os.Stdout
+
+		if i := strings.Index(input, "<"); i != -1 {
+			filename := strings.TrimSpace(input[i+1:])
+			file, err := os.Open(filename)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				continue
+			}
+			defer file.Close()
+			stdin = file
+			input = input[:i]
+		}
+
+		if i := strings.Index(input, ">"); i != -1 {
+			filename := strings.TrimSpace(input[i+1:])
+			file, err := os.Create(filename)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				continue
+			}
+			defer file.Close()
+			stdout = file
+			input = input[:i]
+		}
+
+		// Handle pipes
+		if strings.Contains(input, "|") {
+			commands := strings.Split(input, "|")
+			var cmds []*exec.Cmd
+
+			for _, cmdStr := range commands {
+				cmdStr = strings.TrimSpace(cmdStr)
+				args := strings.Split(cmdStr, " ")
+				cmd := exec.Command(args[0], args[1:]...)
+				cmds = append(cmds, cmd)
+			}
+
+			for i := 0; i < len(cmds)-1; i++ {
+				r, w := io.Pipe()
+				cmds[i].Stdout = w
+				cmds[i+1].Stdin = r
+			}
+
+			cmds[0].Stdin = stdin
+			cmds[len(cmds)-1].Stdout = stdout
+
+			for _, cmd := range cmds {
+				if err := cmd.Start(); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+				}
+			}
+
+			for _, cmd := range cmds {
+				if err := cmd.Wait(); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+				}
+			}
+
+			continue
+		}
+
+		args = strings.Split(input, " ")
 		cmd := exec.Command(args[0], args[1:]...)
 
+		cmd.Stdin = stdin
+		cmd.Stdout = stdout
 		cmd.Stderr = os.Stderr
-		cmd.Stdout = os.Stdout
 
 		err = cmd.Run()
 		if err != nil {

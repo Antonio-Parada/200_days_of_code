@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
 #define MAX_LINE 80 /* The maximum length command */
 
@@ -39,6 +40,21 @@ int main(void)
         if (strcmp(line, "exit") == 0) {
             should_run = 0;
             continue;
+        }
+
+        // I/O redirection
+        char* input_file = NULL;
+        char* output_file = NULL;
+        char* redirect_pos = strchr(line, '<');
+        if (redirect_pos != NULL) {
+            *redirect_pos = '\0';
+            input_file = strtok(redirect_pos + 1, " ");
+        }
+
+        redirect_pos = strchr(line, '>');
+        if (redirect_pos != NULL) {
+            *redirect_pos = '\0';
+            output_file = strtok(redirect_pos + 1, " ");
         }
 
         // Check for pipes
@@ -127,6 +143,25 @@ int main(void)
                 fprintf(stderr, "Fork failed\n");
                 return 1;
             } else if (pid == 0) { // Child process
+                if (input_file != NULL) {
+                    int fd_in = open(input_file, O_RDONLY);
+                    if (fd_in < 0) {
+                        perror("open");
+                        exit(EXIT_FAILURE);
+                    }
+                    dup2(fd_in, STDIN_FILENO);
+                    close(fd_in);
+                }
+                if (output_file != NULL) {
+                    int fd_out = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                    if (fd_out < 0) {
+                        perror("open");
+                        exit(EXIT_FAILURE);
+                    }
+                    dup2(fd_out, STDOUT_FILENO);
+                    close(fd_out);
+                }
+
                 execvp(args[0], args);
                 // execvp only returns if there is an error
                 perror("execvp");
