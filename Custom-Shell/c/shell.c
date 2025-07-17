@@ -25,11 +25,6 @@ int main(void)
             continue;
         }
 
-        if (strcmp(line, "exit") == 0) {
-            should_run = 0;
-            continue;
-        }
-
         // Tokenize the input string
         char *token = strtok(line, " ");
         int i = 0;
@@ -38,6 +33,31 @@ int main(void)
             token = strtok(NULL, " ");
         }
         args[i] = NULL;
+
+        if (args[0] == NULL) {
+            continue;
+        }
+
+        if (strcmp(args[0], "exit") == 0) {
+            should_run = 0;
+            continue;
+        }
+
+        if (strcmp(args[0], "cd") == 0) {
+            if (args[1] == NULL) {
+                char *home = getenv("HOME");
+                if (home != NULL) {
+                    if (chdir(home) != 0) {
+                        perror("cd");
+                    }
+                }
+            } else {
+                if (chdir(args[1]) != 0) {
+                    perror("cd");
+                }
+            }
+            continue;
+        }
 
         pid_t pid = fork();
 

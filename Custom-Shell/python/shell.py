@@ -25,6 +25,18 @@ def main():
         # Split the line into command and arguments
         args = line.split()
 
+        # Handle the 'cd' command
+        if args[0] == "cd":
+            if len(args) > 1:
+                try:
+                    os.chdir(args[1])
+                except FileNotFoundError:
+                    print(f"cd: no such file or directory: {args[1]}")
+            else:
+                # cd to home directory if no argument is given
+                os.chdir(os.path.expanduser("~"))
+            continue
+
         try:
             # Execute the command
             subprocess.run(args)
