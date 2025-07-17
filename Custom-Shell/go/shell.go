@@ -68,6 +68,27 @@ func main() {
 				fmt.Printf("%d  %s\n", i+1, cmd)
 			}
 			continue
+		case "export":
+			if len(args) < 2 {
+				fmt.Fprintln(os.Stderr, "export: usage: export NAME=VALUE")
+				continue
+			}
+			for _, arg := range args[1:] {
+				parts := strings.SplitN(arg, "=", 2)
+				if len(parts) == 2 {
+					os.Setenv(parts[0], parts[1])
+				} else {
+					fmt.Fprintf(os.Stderr, "export: invalid argument: %s\n", arg)
+				}
+			}
+			continue
+		}
+
+		// Expand environment variables in arguments
+		for i, arg := range args {
+			if strings.HasPrefix(arg, "$") {
+				args[i] = os.Getenv(arg[1:])
+			}
 		}
 
 		// I/O redirection
@@ -129,7 +150,7 @@ func main() {
 				if err := cmd.Wait(); err != nil {
 					fmt.Fprintln(os.Stderr, err)
 				}
-			}
+\t		}
 
 			continue
 		}

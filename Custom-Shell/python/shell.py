@@ -4,6 +4,39 @@ import os
 import sys
 import subprocess
 import readline
+import glob
+import atexit
+
+# List of built-in commands for tab completion
+BUILTIN_COMMANDS = ["cd", "exit"]
+
+def completer(text, state):
+    line = readline.get_line_buffer().split()
+
+    # If no command has been typed yet, suggest built-in commands and executables in PATH
+    if not line or (len(line) == 1 and not text):
+        options = [cmd for cmd in BUILTIN_COMMANDS if cmd.startswith(text)]
+        for path_dir in os.environ.get("PATH", "").split(os.pathsep):
+            for exe in glob.glob(os.path.join(path_dir, text + "*")):
+                if os.path.isfile(exe) and os.access(exe, os.X_OK):
+                    options.append(os.path.basename(exe))
+        options = sorted(list(set(options)))
+        return options[state] if state < len(options) else None
+
+    # If a command has been typed, suggest file paths
+    if len(line) > 0:
+        # If the current word is empty, suggest files in the current directory
+        if not text:
+            options = [f for f in os.listdir(".") if os.path.isdir(f) or os.path.isfile(f)]
+            options = sorted(list(set(options)))
+            return options[state] if state < len(options) else None
+        
+        # Otherwise, complete the current word as a file path
+        matches = glob.glob(text + "*")
+        matches = sorted(list(set(matches)))
+        return matches[state] if state < len(matches) else None
+
+    return None
 
 def main():
     """Main loop for the shell."""
@@ -17,6 +50,11 @@ def main():
         pass
 
     atexit.register(readline.write_history_file, histfile)
+
+    # Set up tab completion
+    readline.set_completer(completer)
+    readline.set_completer_delims(' \t\n`~!@#$%^&*()=+[{]}|;:\"',<>/?')
+    readline.parse_and_bind("tab: complete")
 
     while True:
         try:
@@ -45,6 +83,24 @@ def main():
                     # cd to home directory if no argument is given
                     os.chdir(os.path.expanduser("~"))
                 continue
+            elif args[0] == "export":
+                if len(args) > 1:
+                    for arg in args[1:]:
+                        if "=" in arg:
+                            key, value = arg.split("=", 1)
+                            os.environ[key] = value
+                        else:
+                            print(f"export: invalid argument: {arg}")
+                continue
+
+            # Expand environment variables in arguments
+            expanded_args = []
+            for arg in args:
+                if arg.startswith("$"):
+                    expanded_args.append(os.environ.get(arg[1:], ""))
+                else:
+                    expanded_args.append(arg)
+            args = expanded_args
 
             # Handle I/O redirection
             stdin_redir = None
