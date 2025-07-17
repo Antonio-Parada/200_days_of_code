@@ -3,41 +3,49 @@
 import os
 import sys
 import subprocess
+import readline
 
 def main():
     """Main loop for the shell."""
+    # Set up command history
+    histfile = os.path.join(os.path.expanduser("~"), ".python_shell_history")
+    try:
+        readline.read_history_file(histfile)
+        # default history len is -1 (infinite); this avoids memory issues
+        readline.set_history_length(1000)
+    except FileNotFoundError:
+        pass
+
+    atexit.register(readline.write_history_file, histfile)
+
     while True:
-        # Print the prompt
-        sys.stdout.write("> ")
-        sys.stdout.flush()
-
-        # Read a line of input
-        line = sys.stdin.readline().strip()
-
-        # If the line is empty, continue
-        if not line:
-            continue
-
-        # Exit the shell if the user types 'exit'
-        if line == "exit":
-            break
-
-        # Split the line into command and arguments
-        args = line.split()
-
-        # Handle built-in commands
-        if args[0] == "cd":
-            if len(args) > 1:
-                try:
-                    os.chdir(args[1])
-                except FileNotFoundError:
-                    print(f"cd: no such file or directory: {args[1]}")
-            else:
-                # cd to home directory if no argument is given
-                os.chdir(os.path.expanduser("~"))
-            continue
-
         try:
+            # Print the prompt and read a line of input
+            line = input("> ").strip()
+
+            # If the line is empty, continue
+            if not line:
+                continue
+
+            # Exit the shell if the user types 'exit'
+            if line == "exit":
+                break
+
+            # Split the line into command and arguments
+            args = line.split()
+
+            # Handle built-in commands
+            if args[0] == "cd":
+                if len(args) > 1:
+                    try:
+                        os.chdir(args[1])
+                    except FileNotFoundError:
+                        print(f"cd: no such file or directory: {args[1]}")
+                else:
+                    # cd to home directory if no argument is given
+                    os.chdir(os.path.expanduser("~"))
+                continue
+
             # Handle I/O redirection
             stdin_redir = None
             stdout_redir = None

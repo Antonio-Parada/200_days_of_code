@@ -4,8 +4,15 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <termios.h>
+#include <errno.h>
 
 #define MAX_LINE 80 /* The maximum length command */
+#define HISTORY_SIZE 10
+
+char history[HISTORY_SIZE][MAX_LINE];
+int history_count = 0;
+int history_index = 0;
 
 // Function to parse a command string into arguments
 void parse_command(char* command, char** args) {
@@ -18,24 +25,99 @@ void parse_command(char* command, char** args) {
     args[i] = NULL;
 }
 
+// Function to add a command to history
+void add_to_history(const char* command) {
+    if (history_count < HISTORY_SIZE) {
+        strcpy(history[history_count], command);
+        history_count++;
+    } else {
+        for (int i = 0; i < HISTORY_SIZE - 1; i++) {
+            strcpy(history[i], history[i+1]);
+        }
+        strcpy(history[HISTORY_SIZE - 1], command);
+    }
+    history_index = history_count;
+}
+
 int main(void)
 {
     char *args[MAX_LINE/2 + 1]; /* command line arguments */
     int should_run = 1; /* flag to determine when to exit program */
+
+    struct termios old_tio, new_tio;
+
+    // Get the current terminal settings
+    tcgetattr(STDIN_FILENO, &old_tio);
+
+    // Set new terminal settings for raw mode
+    new_tio = old_tio;
+    new_tio.c_lflag &= (~ICANON & ~ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
 
     while (should_run) {
         printf("> ");
         fflush(stdout);
 
         char line[MAX_LINE];
-        fgets(line, MAX_LINE, stdin);
+        memset(line, 0, MAX_LINE);
+        int line_len = 0;
+        char c;
 
-        // Remove trailing newline character
-        line[strcspn(line, "\n")] = 0;
+        while (read(STDIN_FILENO, &c, 1) == 1) {
+            if (c == '\n') { // Enter key
+                break;
+            } else if (c == 127) { // Backspace
+                if (line_len > 0) {
+                    line_len--;
+                    printf("\b \b"); // Erase character from screen
+                    fflush(stdout);
+                }
+            } else if (c == '\033') { // Escape sequence (arrow keys)
+                read(STDIN_FILENO, &c, 1);
+                read(STDIN_FILENO, &c, 1);
+                if (c == 'A') { // Up arrow
+                    if (history_index > 0) {
+                        history_index--;
+                        // Clear current line
+                        for (int i = 0; i < line_len; i++) printf("\b \b");
+                        printf("%s", history[history_index]);
+                        strcpy(line, history[history_index]);
+                        line_len = strlen(line);
+                        fflush(stdout);
+                    }
+                } else if (c == 'B') { // Down arrow
+                    if (history_index < history_count - 1) {
+                        history_index++;
+                        // Clear current line
+                        for (int i = 0; i < line_len; i++) printf("\b \b");
+                        printf("%s", history[history_index]);
+                        strcpy(line, history[history_index]);
+                        line_len = strlen(line);
+                        fflush(stdout);
+                    } else if (history_index == history_count - 1) {
+                        history_index++;
+                        // Clear current line
+                        for (int i = 0; i < line_len; i++) printf("\b \b");
+                        memset(line, 0, MAX_LINE);
+                        line_len = 0;
+                        fflush(stdout);
+                    }
+                }
+            } else {
+                if (line_len < MAX_LINE - 1) {
+                    line[line_len++] = c;
+                    printf("%c", c);
+                    fflush(stdout);
+                }
+            }
+        }
+        line[line_len] = '\0'; // Null-terminate the string
 
         if (strlen(line) == 0) {
             continue;
         }
+
+        add_to_history(line);
 
         if (strcmp(line, "exit") == 0) {
             should_run = 0;
@@ -43,25 +125,27 @@ int main(void)
         }
 
         // I/O redirection
+        char temp_line[MAX_LINE];
+        strcpy(temp_line, line);
         char* input_file = NULL;
         char* output_file = NULL;
-        char* redirect_pos = strchr(line, '<');
+        char* redirect_pos = strchr(temp_line, '<');
         if (redirect_pos != NULL) {
             *redirect_pos = '\0';
             input_file = strtok(redirect_pos + 1, " ");
         }
 
-        redirect_pos = strchr(line, '>');
+        redirect_pos = strchr(temp_line, '>');
         if (redirect_pos != NULL) {
             *redirect_pos = '\0';
             output_file = strtok(redirect_pos + 1, " ");
         }
 
         // Check for pipes
-        char* pipe_pos = strchr(line, '|');
+        char* pipe_pos = strchr(temp_line, '|');
         if (pipe_pos != NULL) {
             // Pipe found, handle it
-            char* command1 = strtok(line, "|");
+            char* command1 = strtok(temp_line, "|");
             char* command2 = strtok(NULL, "|");
 
             char* args1[MAX_LINE/2 + 1];
@@ -115,7 +199,7 @@ int main(void)
 
         } else {
             // No pipe, execute a simple command
-            parse_command(line, args);
+            parse_command(temp_line, args);
 
             if (args[0] == NULL) {
                 continue;
@@ -184,6 +268,9 @@ int main(void)
             }
         }
     }
+
+    // Restore original terminal settings
+    tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
 
     return 0;
 }

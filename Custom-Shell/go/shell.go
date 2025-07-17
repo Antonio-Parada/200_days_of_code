@@ -9,6 +9,16 @@ import (
 	"strings"
 )
 
+const historySize = 10
+var commandHistory []string
+
+func addCommandToHistory(cmd string) {
+	if len(commandHistory) >= historySize {
+		commandHistory = commandHistory[1:]
+	}
+	commandHistory = append(commandHistory, cmd)
+}
+
 func main() {
 	reader := bufio.NewReader(os.Stdin)
 
@@ -27,6 +37,8 @@ func main() {
 		if len(input) == 0 {
 			continue
 		}
+
+		addCommandToHistory(input)
 
 		// Handle built-in commands
 		args := strings.Split(input, " ")
@@ -49,6 +61,11 @@ func main() {
 				if err != nil {
 					fmt.Fprintln(os.Stderr, err)
 				}
+			}
+			continue
+		case "history":
+			for i, cmd := range commandHistory {
+				fmt.Printf("%d  %s\n", i+1, cmd)
 			}
 			continue
 		}
