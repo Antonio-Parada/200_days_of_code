@@ -7,13 +7,26 @@
 #include <termios.h>
 #include <errno.h>
 #include <dirent.h>
+#include <signal.h>
 
 #define MAX_LINE 80 /* The maximum length command */
 #define HISTORY_SIZE 10
+#define MAX_JOBS 10
 
 char history[HISTORY_SIZE][MAX_LINE];
 int history_count = 0;
 int history_index = 0;
+
+typedef struct {
+    pid_t pid;
+    char command[MAX_LINE];
+    int status; // 0: running, 1: stopped, 2: done
+    int job_id;
+} Job;
+
+Job jobs[MAX_JOBS];
+int job_count = 0;
+int next_job_id = 1;
 
 // Function to parse a command string into arguments
 void parse_command(char* command, char** args) {
@@ -40,12 +53,59 @@ void add_to_history(const char* command) {
     history_index = history_count;
 }
 
+// Function to add a job to the job list
+void add_job(pid_t pid, const char* command, int status) {
+    if (job_count < MAX_JOBS) {
+        jobs[job_count].pid = pid;
+        strcpy(jobs[job_count].command, command);
+        jobs[job_count].status = status;
+        jobs[job_count].job_id = next_job_id++;
+        job_count++;
+    } else {
+        fprintf(stderr, "Too many background jobs.\n");
+    }
+}
+
+// Function to remove a job from the job list
+void remove_job(pid_t pid) {
+    for (int i = 0; i < job_count; i++) {
+        if (jobs[i].pid == pid) {
+            for (int j = i; j < job_count - 1; j++) {
+                jobs[j] = jobs[j+1];
+            }
+            job_count--;
+            break;
+        }
+    }
+}
+
+// Signal handler for SIGCHLD
+void sigchld_handler(int signum) {
+    pid_t pid;
+    int status;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        // Check if the process was a background job
+        for (int i = 0; i < job_count; i++) {
+            if (jobs[i].pid == pid) {
+                if (WIFEXITED(status) || WIFSIGNALED(status)) {
+                    printf("\n[%d] Done %s\n", jobs[i].job_id, jobs[i].command);
+                    remove_job(pid);
+                }
+                break;
+            }
+        }
+    }
+}
+
 int main(void)
 {
     char *args[MAX_LINE/2 + 1]; /* command line arguments */
     int should_run = 1; /* flag to determine when to exit program */
 
     struct termios old_tio, new_tio;
+
+    // Set up signal handler for SIGCHLD
+    signal(SIGCHLD, sigchld_handler);
 
     // Get the current terminal settings
     tcgetattr(STDIN_FILENO, &old_tio);
@@ -169,11 +229,6 @@ int main(void)
 
         add_to_history(line);
 
-        if (strcmp(line, "exit") == 0) {
-            should_run = 0;
-            continue;
-        }
-
         // I/O redirection
         char temp_line[MAX_LINE];
         strcpy(temp_line, line);
@@ -255,8 +310,25 @@ int main(void)
                 continue;
             }
 
-            // Handle 'export' command
-            if (strcmp(args[0], "export") == 0) {
+            // Handle built-in commands
+            if (strcmp(args[0], "exit") == 0) {
+                should_run = 0;
+                continue;
+            } else if (strcmp(args[0], "cd") == 0) {
+                if (args[1] == NULL) {
+                    char *home = getenv("HOME");
+                    if (home != NULL) {
+                        if (chdir(home) != 0) {
+                            perror("cd");
+                        }
+                    }
+                } else {
+                    if (chdir(args[1]) != 0) {
+                        perror("cd");
+                    }
+                }
+                continue;
+            } else if (strcmp(args[0], "export") == 0) {
                 if (args[1] != NULL) {
                     char *eq_pos = strchr(args[1], '=');
                     if (eq_pos != NULL) {
@@ -267,53 +339,40 @@ int main(void)
                     }
                 }
                 continue;
+            } else if (strcmp(args[0], "jobs") == 0) {
+                for (int i = 0; i < job_count; i++) {
+                    printf("[%d] %s %s\n", jobs[i].job_id, jobs[i].status == 0 ? "Running" : "Stopped", jobs[i].command);
+                }
+                continue;
+            } else if (strcmp(args[0], "fg") == 0) {
+                if (args[1] == NULL) {
+                    fprintf(stderr, "fg: usage: fg <job_id>\n");
+                    continue;
+                }
+                int job_id = atoi(args[1]);
+                Job *target_job = NULL;
+                for (int i = 0; i < job_count; i++) {
+                    if (jobs[i].job_id == job_id) {
+                        target_job = &jobs[i];
+                        break;
+                    }
+                }
+                if (target_job != NULL) {
+                    printf("Bringing job %d to foreground: %s\n", target_job->job_id, target_job->command);
+                    kill(-target_job->pid, SIGCONT); // Send SIGCONT to the process group
+                    tcsetpgrp(STDIN_FILENO, target_job->pid); // Set foreground process group
+                    waitpid(target_job->pid, NULL, WUNTRACED); // Wait for the job to finish or stop
+                    tcsetpgrp(STDIN_FILENO, getpgrp()); // Restore shell as foreground process group
+                    remove_job(target_job->pid);
+                } else {
+                    fprintf(stderr, "fg: job not found: %d\n", job_id);
+                }
+                continue;
             }
 
             // Expand environment variables
             for (int j = 0; args[j] != NULL; j++) {
-                if (args[j][0] == '
-
-            if (pid < 0) { // Error
-                fprintf(stderr, "Fork failed\n");
-                return 1;
-            } else if (pid == 0) { // Child process
-                if (input_file != NULL) {
-                    int fd_in = open(input_file, O_RDONLY);
-                    if (fd_in < 0) {
-                        perror("open");
-                        exit(EXIT_FAILURE);
-                    }
-                    dup2(fd_in, STDIN_FILENO);
-                    close(fd_in);
-                }
-                if (output_file != NULL) {
-                    int fd_out = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                    if (fd_out < 0) {
-                        perror("open");
-                        exit(EXIT_FAILURE);
-                    }
-                    dup2(fd_out, STDOUT_FILENO);
-                    close(fd_out);
-                }
-
-                execvp(args[0], args);
-                // execvp only returns if there is an error
-                perror("execvp");
-                exit(EXIT_FAILURE);
-            } else { // Parent process
-                if (!is_background) {
-                    wait(NULL);
-                }
-            }
-        }
-    }
-
-    // Restore original terminal settings
-    tcsetattr(STDIN_FILENO, TCSANOW, &old_tio);
-
-    return 0;
-}
-) {
+                if (args[j][0] == '$') {
                     char *env_val = getenv(args[j] + 1);
                     if (env_val != NULL) {
                         args[j] = env_val;
@@ -334,28 +393,17 @@ int main(void)
                 args[arg_count - 1] = NULL; // Remove the '&'
             }
 
-            if (strcmp(args[0], "cd") == 0) {
-                if (args[1] == NULL) {
-                    char *home = getenv("HOME");
-                    if (home != NULL) {
-                        if (chdir(home) != 0) {
-                            perror("cd");
-                        }
-                    }
-                } else {
-                    if (chdir(args[1]) != 0) {
-                        perror("cd");
-                    }
-                }
-                continue;
-            }
-
             pid_t pid = fork();
 
             if (pid < 0) { // Error
                 fprintf(stderr, "Fork failed\n");
                 return 1;
             } else if (pid == 0) { // Child process
+                setpgid(0, 0); // Set new process group for the child
+                if (!is_background) {
+                    tcsetpgrp(STDIN_FILENO, getpgrp()); // Set foreground process group
+                }
+
                 if (input_file != NULL) {
                     int fd_in = open(input_file, O_RDONLY);
                     if (fd_in < 0) {
@@ -380,8 +428,11 @@ int main(void)
                 perror("execvp");
                 exit(EXIT_FAILURE);
             } else { // Parent process
-                if (!is_background) {
-                    wait(NULL);
+                if (is_background) {
+                    add_job(pid, line, 0); // Add to background jobs
+                    printf("[%d] %d\n", jobs[job_count-1].job_id, pid);
+                } else {
+                    waitpid(pid, NULL, WUNTRACED); // Wait for foreground job
                 }
             }
         }

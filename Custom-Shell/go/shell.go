@@ -6,11 +6,24 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"syscall"
+	"time"
 )
 
 const historySize = 10
 var commandHistory []string
+
+type Job struct {
+	ID      int
+	Cmd     *exec.Cmd
+	Command string
+	Status  string // "Running", "Done", "Stopped"
+}
+
+var jobs []Job
+var nextJobID int = 1
 
 func addCommandToHistory(cmd string) {
 	if len(commandHistory) >= historySize {
@@ -19,10 +32,39 @@ func addCommandToHistory(cmd string) {
 	commandHistory = append(commandHistory, cmd)
 }
 
+func addJob(cmd *exec.Cmd, commandStr string) {
+	job := Job{
+		ID:      nextJobID,
+		Cmd:     cmd,
+		Command: commandStr,
+		Status:  "Running",
+	}
+	jobs = append(jobs, job)
+	nextJobID++
+	fmt.Printf("[%d] %d\n", job.ID, cmd.Process.Pid)
+}
+
+func updateJobs() {
+	for i := 0; i < len(jobs); i++ {
+		select {
+		case <-time.After(10 * time.Millisecond):
+			// Non-blocking check
+			processState := jobs[i].Cmd.ProcessState
+			if processState != nil && processState.Exited() {
+				fmt.Printf("[%d] Done %s\n", jobs[i].ID, jobs[i].Command)
+				jobs = append(jobs[:i], jobs[i+1:]...)
+				i-- // Adjust index after removal
+			}
+		}
+	}
+}
+
 func main() {
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
+		updateJobs()
+
 		fmt.Print("> ")
 
 		input, err := reader.ReadString('\n')
@@ -80,6 +122,46 @@ func main() {
 				} else {
 					fmt.Fprintf(os.Stderr, "export: invalid argument: %s\n", arg)
 				}
+			}
+			continue
+		case "jobs":
+			if len(jobs) == 0 {
+				fmt.Println("No background jobs.")
+			} else {
+				for _, job := range jobs {
+					fmt.Printf("[%d] %s %s\n", job.ID, job.Status, job.Command)
+				}
+			}
+			continue
+		case "fg":
+			if len(args) < 2 {
+				fmt.Fprintln(os.Stderr, "fg: usage: fg <job_id>")
+				continue
+			}
+			jobID, err := strconv.Atoi(args[1])
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "fg: invalid job ID")
+				continue
+			}
+			foundJob := -1
+			for i, job := range jobs {
+				if job.ID == jobID {
+					foundJob = i
+					break
+				}
+			}
+			if foundJob != -1 {
+				job := jobs[foundJob]
+				fmt.Printf("Bringing job %d to foreground: %s\n", job.ID, job.Command)
+				// Bring process to foreground
+				_, err := syscall.Wait4(job.Cmd.Process.Pid, nil, 0, nil)
+				if err != nil {
+					fmt.Fprintln(os.Stderr, err)
+				}
+				// Remove job from list after it finishes
+				jobs = append(jobs[:foundJob], jobs[foundJob+1:]...)
+			} else {
+				fmt.Fprintln(os.Stderr, "fg: job not found")
 			}
 			continue
 		}
@@ -150,7 +232,7 @@ func main() {
 				if err := cmd.Wait(); err != nil {
 					fmt.Fprintln(os.Stderr, err)
 				}
-\t		}
+			}
 
 			continue
 		}
@@ -175,6 +257,7 @@ func main() {
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 			}
+			addJob(cmd, input) // Add job to list
 		} else {
 			err = cmd.Run()
 			if err != nil {

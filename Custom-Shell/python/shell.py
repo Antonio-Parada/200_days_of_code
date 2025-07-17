@@ -6,9 +6,21 @@ import subprocess
 import readline
 import glob
 import atexit
+import signal
 
 # List of built-in commands for tab completion
-BUILTIN_COMMANDS = ["cd", "exit"]
+BUILTIN_COMMANDS = ["cd", "exit", "jobs", "fg"]
+
+# List to store background processes
+background_jobs = []
+job_id_counter = 1
+
+def cleanup_jobs(signum, frame):
+    global background_jobs
+    for job in background_jobs[:]:
+        if job['process'].poll() is not None: # Process has terminated
+            print(f"\n[{job['id']}] Done {job['command']}")
+            background_jobs.remove(job)
 
 def completer(text, state):
     line = readline.get_line_buffer().split()
@@ -40,6 +52,9 @@ def completer(text, state):
 
 def main():
     """Main loop for the shell."""
+    # Set up signal handler for child processes
+    signal.signal(signal.SIGCHLD, cleanup_jobs)
+
     # Set up command history
     histfile = os.path.join(os.path.expanduser("~"), ".python_shell_history")
     try:
@@ -53,7 +68,7 @@ def main():
 
     # Set up tab completion
     readline.set_completer(completer)
-    readline.set_completer_delims(' \t\n`~!@#$%^&*()=+[{]}|;:\"',<>/?')
+    readline.set_completer_delims(' \t\n`~!@#$%^&*()=+[{]}|;:"',<>/?')
     readline.parse_and_bind("tab: complete")
 
     while True:
@@ -91,6 +106,35 @@ def main():
                             os.environ[key] = value
                         else:
                             print(f"export: invalid argument: {arg}")
+                continue
+            elif args[0] == "jobs":
+                if not background_jobs:
+                    print("No background jobs.")
+                else:
+                    for job in background_jobs:
+                        status = "Running" if job['process'].poll() is None else "Done"
+                        print(f"[{job['id']}] {status} {job['command']}")
+                continue
+            elif args[0] == "fg":
+                if len(args) < 2:
+                    print("fg: usage: fg <job_id>")
+                    continue
+                try:
+                    job_id = int(args[1])
+                    found_job = None
+                    for job in background_jobs:
+                        if job['id'] == job_id:
+                            found_job = job
+                            break
+                    if found_job:
+                        print(f"Bringing job {job_id} to foreground: {found_job['command']}")
+                        found_job['process'].wait() # Wait for the process to complete
+                        if found_job['process'].poll() is not None: # Process has terminated
+                            background_jobs.remove(found_job)
+                    else:
+                        print(f"fg: job not found: {job_id}")
+                except ValueError:
+                    print("fg: invalid job ID")
                 continue
 
             # Expand environment variables in arguments
@@ -150,7 +194,11 @@ def main():
 
                 # Execute a simple command
                 if is_background:
-                    subprocess.Popen(args, stdin=stdin_redir, stdout=stdout_redir, stderr=sys.stderr)
+                    process = subprocess.Popen(args, stdin=stdin_redir, stdout=stdout_redir, stderr=sys.stderr)
+                    global job_id_counter
+                    background_jobs.append({'id': job_id_counter, 'process': process, 'command': ' '.join(args)})
+                    print(f"[{job_id_counter}] {process.pid}")
+                    job_id_counter += 1
                 else:
                     subprocess.run(args, stdin=stdin_redir, stdout=stdout_redir, stderr=sys.stderr)
 
