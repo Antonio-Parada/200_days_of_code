@@ -121,6 +121,17 @@ int main(void)
                 continue;
             }
 
+            // Check for background process
+            int is_background = 0;
+            int arg_count = 0;
+            while (args[arg_count] != NULL) {
+                arg_count++;
+            }
+            if (arg_count > 0 && strcmp(args[arg_count - 1], "&") == 0) {
+                is_background = 1;
+                args[arg_count - 1] = NULL; // Remove the '&'
+            }
+
             if (strcmp(args[0], "cd") == 0) {
                 if (args[1] == NULL) {
                     char *home = getenv("HOME");
@@ -167,7 +178,9 @@ int main(void)
                 perror("execvp");
                 exit(EXIT_FAILURE);
             } else { // Parent process
-                wait(NULL);
+                if (!is_background) {
+                    wait(NULL);
+                }
             }
         }
     }

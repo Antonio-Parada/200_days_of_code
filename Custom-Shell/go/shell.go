@@ -118,15 +118,30 @@ func main() {
 		}
 
 		args = strings.Split(input, " ")
+
+		// Check for background process
+		isBackground := false
+		if len(args) > 0 && args[len(args)-1] == "&" {
+			isBackground = true
+			args = args[:len(args)-1]
+		}
+
 		cmd := exec.Command(args[0], args[1:]...)
 
 		cmd.Stdin = stdin
 		cmd.Stdout = stdout
 		cmd.Stderr = os.Stderr
 
-		err = cmd.Run()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
+		if isBackground {
+			err = cmd.Start()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+			}
+		} else {
+			err = cmd.Run()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+			}
 		}
 	}
 }

@@ -78,8 +78,17 @@ def main():
                     print(err.decode().strip(), file=sys.stderr)
 
             else:
+                # Check for background process
+                is_background = False
+                if args and args[-1] == "&":
+                    is_background = True
+                    args = args[:-1]
+
                 # Execute a simple command
-                subprocess.run(args, stdin=stdin_redir, stdout=stdout_redir)
+                if is_background:
+                    subprocess.Popen(args, stdin=stdin_redir, stdout=stdout_redir, stderr=sys.stderr)
+                else:
+                    subprocess.run(args, stdin=stdin_redir, stdout=stdout_redir, stderr=sys.stderr)
 
             if stdin_redir:
                 stdin_redir.close()
