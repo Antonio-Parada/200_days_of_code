@@ -6,6 +6,17 @@
 
 #define MAX_LINE 80 /* The maximum length command */
 
+// Function to parse a command string into arguments
+void parse_command(char* command, char** args) {
+    char* token = strtok(command, " ");
+    int i = 0;
+    while (token != NULL) {
+        args[i++] = token;
+        token = strtok(NULL, " ");
+    }
+    args[i] = NULL;
+}
+
 int main(void)
 {
     char *args[MAX_LINE/2 + 1]; /* command line arguments */
@@ -25,52 +36,104 @@ int main(void)
             continue;
         }
 
-        // Tokenize the input string
-        char *token = strtok(line, " ");
-        int i = 0;
-        while (token != NULL) {
-            args[i++] = token;
-            token = strtok(NULL, " ");
-        }
-        args[i] = NULL;
-
-        if (args[0] == NULL) {
-            continue;
-        }
-
-        if (strcmp(args[0], "exit") == 0) {
+        if (strcmp(line, "exit") == 0) {
             should_run = 0;
             continue;
         }
 
-        if (strcmp(args[0], "cd") == 0) {
-            if (args[1] == NULL) {
-                char *home = getenv("HOME");
-                if (home != NULL) {
-                    if (chdir(home) != 0) {
+        // Check for pipes
+        char* pipe_pos = strchr(line, '|');
+        if (pipe_pos != NULL) {
+            // Pipe found, handle it
+            char* command1 = strtok(line, "|");
+            char* command2 = strtok(NULL, "|");
+
+            char* args1[MAX_LINE/2 + 1];
+            char* args2[MAX_LINE/2 + 1];
+
+            parse_command(command1, args1);
+            parse_command(command2, args2);
+
+            int pipefd[2];
+            pid_t p1, p2;
+
+            if (pipe(pipefd) < 0) {
+                perror("pipe");
+                continue;
+            }
+
+            p1 = fork();
+            if (p1 < 0) {
+                perror("fork");
+                continue;
+            }
+
+            if (p1 == 0) { // Child 1
+                close(pipefd[0]);
+                dup2(pipefd[1], STDOUT_FILENO);
+                close(pipefd[1]);
+                execvp(args1[0], args1);
+                perror("execvp");
+                exit(EXIT_FAILURE);
+            }
+
+            p2 = fork();
+            if (p2 < 0) {
+                perror("fork");
+                continue;
+            }
+
+            if (p2 == 0) { // Child 2
+                close(pipefd[1]);
+                dup2(pipefd[0], STDIN_FILENO);
+                close(pipefd[0]);
+                execvp(args2[0], args2);
+                perror("execvp");
+                exit(EXIT_FAILURE);
+            }
+
+            close(pipefd[0]);
+            close(pipefd[1]);
+            waitpid(p1, NULL, 0);
+            waitpid(p2, NULL, 0);
+
+        } else {
+            // No pipe, execute a simple command
+            parse_command(line, args);
+
+            if (args[0] == NULL) {
+                continue;
+            }
+
+            if (strcmp(args[0], "cd") == 0) {
+                if (args[1] == NULL) {
+                    char *home = getenv("HOME");
+                    if (home != NULL) {
+                        if (chdir(home) != 0) {
+                            perror("cd");
+                        }
+                    }
+                } else {
+                    if (chdir(args[1]) != 0) {
                         perror("cd");
                     }
                 }
-            } else {
-                if (chdir(args[1]) != 0) {
-                    perror("cd");
-                }
+                continue;
             }
-            continue;
-        }
 
-        pid_t pid = fork();
+            pid_t pid = fork();
 
-        if (pid < 0) { // Error
-            fprintf(stderr, "Fork failed\n");
-            return 1;
-        } else if (pid == 0) { // Child process
-            execvp(args[0], args);
-            // execvp only returns if there is an error
-            perror("execvp");
-            exit(EXIT_FAILURE);
-        } else { // Parent process
-            wait(NULL);
+            if (pid < 0) { // Error
+                fprintf(stderr, "Fork failed\n");
+                return 1;
+            } else if (pid == 0) { // Child process
+                execvp(args[0], args);
+                // execvp only returns if there is an error
+                perror("execvp");
+                exit(EXIT_FAILURE);
+            } else { // Parent process
+                wait(NULL);
+            }
         }
     }
 
